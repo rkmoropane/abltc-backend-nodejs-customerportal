@@ -8,15 +8,9 @@ const session = require('express-session');
 
 const bodyParser = require('body-parser');       // Middleware for parsing JSON requests
 const path = require('path');                    // Node.js path module for working with file and directory paths
-
 //  Modules to encrypt the password and store it
 const bcrypt = require("bcrypt")
-const saltRounds = 5
-const password = "admin"
-
-// Creating an instance of the Express application
-const app = express();
-
+const jwt = require('jsonwebtoken');  // Added JWT library
 const uuid = require('uuid'); //to generate a unique session id
 
 const {
@@ -27,15 +21,17 @@ const {
     MONGODB_DATABASE,
     SESSION_SECRET
   } = process.env;
+  
 
+const secretKey = SESSION_SECRET;  // Replace with a secure secret key
+const saltRounds = 5
+// const password = "admin"
 
-app.use(session({
-  	cookie: { maxAge: 120000 }, // Session expires after 2 minutes of inactivity
-	secret: `${SESSION_SECRET}`,
-	res: false,
-	saveUninitialized: true,
-	genid: () => uuid.v4()
-}));
+// Creating an instance of the Express application
+const app = express();
+
+// A dictionary object to store username and password
+let usersdic = {};
 
 
 // Setting the port number for the server
@@ -48,9 +44,17 @@ const uri =
     `${encodeURIComponent(MONGODB_PASSWORD)}@` +
     `${MONGODB_HOST}:${MONGODB_PORT}`;
   
-// MongoDB connection URI and database name
-// const uri =  "mongodb://root:your_password@localhost:27017";
-
+    // MongoDB connection URI and database name
+    // const uri =  "mongodb://root:your_password@localhost:27017";
+    
+    
+app.use(session({
+    cookie: { maxAge: 120000 }, // Session expires after 2 minutes of inactivity
+    secret: `${SESSION_SECRET}`,
+    res: false,
+    saveUninitialized: true,
+    genid: () => uuid.v4()
+}));
 
 mongoose.connect(uri, {'dbName': `${MONGODB_DATABASE}`});
 
@@ -90,21 +94,29 @@ app.post('/api/login', async (req, res) => {
     let password = data['password'];
 
     // Querying the MongoDB 'customers' collection for matching user_name and password
-    const documents = await Customers.find({ user_name: user_name });
+    // const documents = await Customers.find({ user_name: user_name });
 
-    // If a matching user is found, set the session username and serve the home page
-    if (documents.length > 0) {
-        let result = await bcrypt.compare(password, documents[0]['password'])
-        if(result) {
-            const genidValue = req.sessionID;
-            res.cookie('username', user_name);
-            res.sendFile(path.join(__dirname, 'frontend', 'home.html'));
-        } else {
-            res.send("Password Incorrect! Try again");
-        }
-    } else {
-        res.send("User Information incorrect");
+    // // If a matching user is found, set the session username and serve the home page
+    // if (documents.length > 0) {
+    //     let result = await bcrypt.compare(password, documents[0]['password'])
+    //     if(result) {
+    //         const genidValue = req.sessionID;
+    //         res.cookie('username', user_name);
+    //         res.sendFile(path.join(__dirname, 'frontend', 'home.html'));
+    //     } else {
+    //         res.send("Password Incorrect! Try again");
+    //     }
+    // } else {
+    //     res.send("User Information incorrect");
+    const user = usersdic[user_name];
+    if (!user || !(await bcrypt.compare(password, user.hashedpwd))) {
+        res.status(401).send('User Information incorrect');
+        return;
     }
+ 
+    // No need to print details to the terminal, just send a success message
+    res.status(200).send('Login successfully');
+    
 });
 
 // GET endpoint for user logout
@@ -147,10 +159,12 @@ app.get('/api/logout', async (req, res) => {
 // POST endpoint for adding a new customer
 app.post('/api/add_customer', async (req, res) => {
     const data = req.body;
+    console.log(data);
 
     const documents = await Customers.find({ user_name: data['user_name']});
     if (documents.length > 0) {
         res.send("User already exists");
+        return;
     }
 
     let hashedpwd = bcrypt.hashSync(data['password'], saltRounds)
@@ -175,7 +189,28 @@ app.get('/', async (req, res) => {
     res.sendFile(path.join(__dirname, 'frontend', 'home.html'));
 });
 
+// Function to authenticate JWT token
+function authenticateToken(req, res, next) {
+    const token = req.headers['authorization'];
+ 
+    if (!token) {
+        res.sendStatus(401);
+        return;
+    }
+ 
+    jwt.verify(token, secretKey, (err, user) => {
+        if (err) {
+            res.sendStatus(403);
+            return;
+        }
+ 
+        req.user = user;
+        next();
+    });
+}
+
 // Starting the server and listening on the specified port
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
+
