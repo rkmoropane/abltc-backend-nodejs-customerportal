@@ -14,7 +14,7 @@ const jwt = require('jsonwebtoken');  // Added JWT library
 const uuid = require('uuid'); //to generate a unique session id
 
 // require the Custom errors create on Registration and Login, errors/CustomErrors.js 
-const { ValidationError, InvalidUserError, AuthenticationFailed, DuplicateUserError } = require('./errors/CustomErrors');
+const { ValidationError, InvalidUserError, AuthenticationFailed, DuplicateUserError } = require('./errors/CustomError');
 
 
 const {
@@ -38,7 +38,7 @@ const app = express();
 let usersdic = {};
 
 // Setting the port number for the server
-const port = 3000;
+const port = 3001;
 
 // MongoDB connection URI and database name
 const uri =
@@ -55,7 +55,7 @@ mongoose.connect(uri, {'dbName': `${MONGODB_DATABASE}`});
 app.use(session({
     cookie: { maxAge: 120000 }, // Session expires after 2 minutes of inactivity
     secret: `${SESSION_SECRET}`,
-    res: false,
+    resave: false,
     saveUninitialized: true,
     genid: () => uuid.v4()
 }));
@@ -140,15 +140,31 @@ app.post('/api/login', async (req, res, next) => {
     
  
     try {
-        const user = await Customers.findOne({ user_name: user_name });
+        const user = await Customers.findOne({ user_name: user_name.trim() });
         if (!user) {
             throw new InvalidUserError("No such user in database");
         }
-        if (user.password !== password) {
+        const passwordMatches = await bcrypt.compare(
+            password,
+            user.password
+          );
+        if (!passwordMatches) {
             throw new AuthenticationFailed("Passwords don't match");
         }
+        const token = jwt.sign({
+            userID: user._id,
+            user_name: user.user_name
+        },
+        secretKey,
+        {
+            expiresIn: '1h'
+        }
+        )
         const genidValue = req.sessionID;
-        res.cookie('username', user_name);
+        res.cookie("token", token, {
+            httpOnly: true,
+            maxAge: 60 * 60 * 1000
+        });
         res.sendFile(path.join(__dirname, 'frontend', 'home.html'));
     } catch (error) {
         next(error);
@@ -229,61 +245,118 @@ app.get('/api/logout', async (req, res, next) => {
 // Added the custom errors classes to the '/app/add_customer' endpoint
 // POST endpoint for adding a new customer
 app.post('/api/add_customer', async (req, res, next) => {
-    const data = req.body;
-    const age = parseInt(data['age']);
+    const {
+        Name,
+        user_name,
+        age,
+        password,
+        email
+      } = req.body;
+
+    const parsedAge = Number(age);
  
     try {
-        if (age < 21) {
+        if (!Name || typeof Name !== "string") {
+            throw new ValidationError(
+              "Name is required and must be a string"
+            );
+          }
+        
+        if (!user_name || typeof user_name !== "string") {
+            throw new ValidationError(
+              "Username is required and must be a string"
+            );
+          }
+
+        if (!password || typeof password !== "string") {
+            throw new ValidationError(
+              "Password is required and must be a string"
+            );
+          }
+
+        if (!email || typeof email !== "string") {
+            throw new ValidationError(
+              "Email is required and must be a string"
+            );
+          }
+        
+
+        if (!Number.isInteger(parsedAge)) {
+            throw new ValidationError("Age must be a valid number");
+          }
+          
+          
+        if (parsedAge < 21) {
             throw new ValidationError("Customer must be at least 21 years old");
         }
-        const documents = await Customers.find({ user_name: data['user_name']});
+        const documents = await Customers.find({ user_name: user_name});
         if (documents.length > 0) {
             throw new DuplicateUserError(
                 "A customer with this username already exists"
               );
         }
 
-        if (!user_name || !age || !password || !email) {
-            throw new ValidationError(
-              "Username, age, password, and email are required"
-            );
-          }
         if (password.length < 8) {
             throw new ValidationError(
               "Password must contain at least 8 characters"
             );
         }
-        let hashedpwd = bcrypt.hashSync(data['password'], saltRounds)
+        const hashedPassword = await bcrypt.hash(
+            password,
+            saltRounds
+          );
  
         const customer = new Customers({
-            "user_name": data['user_name'],
-            "age": age,
-            "password": data['password'],
-            "email": data['email']
-        });
+            Name: Name.trim(),
+            user_name: user_name.trim(),
+            age: parsedAge,
+            password: hashedPassword,
+            email: email.trim().toLowerCase()
+          });
  
         await customer.save();
  
-        res.send("Customer added successfully");
+        res.status(201).json({
+            success: true,
+            message: "Customer added successfully"
+          })
     } catch (error) {
+        if (error.code === 11000) {
+          next(
+            new DuplicateUserError(
+              "A customer with this username already exists"
+            )
+          );
+        }
         next(error);
-    }
+      }
 });
 
 
 
 // Function to authenticate JWT token
 function authenticateToken(req, res, next) {
-    const token = req.headers['authorization'];
+    const authorizationHeader = req.headers['authorization'];
  
-    if (!token) {
-        res.sendStatus(401);
+    if (!authorizationHeader) {
+        res.sendStatus(401).json({
+            message: "Authentication token is required"
+          });
         return;
+    }
+    const token = authorizationHeader.split(" ")[1];
+
+    if (!token) {
+        return res.status(401).json({
+        message: "Invalid authorization header"
+        });
     }
  
     jwt.verify(token, secretKey, (err, user) => {
         if (err) {
-            res.sendStatus(403);
+            res.sendStatus(403).json({
+                message: "Invalid or expired token"
+              });
             return;
         }
  
