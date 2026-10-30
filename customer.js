@@ -9,17 +9,23 @@ const customersSchema = new Schema({
     // Field for storing the user's name as a string.
     user_name: {
         type: String,   // Data type is String.
-        required: true  // The field is required and must have a value.
+        required: [true, 'Username is required'],  // The field is required and must have a value.
+        unique: true, // checking duplicates 
+        trim: true,
+        minlength: 3
     },
     // Field for storing the user's password as a string.
     password: {
         type: String,   // Data type is String.
-        required: true  // The field is required and must have a value.
+        required: [true, 'Password is required'],  // The field is required and must have a value.
+        minlength: 8
     },
     // Field for storing the user's email address as a string.
     email: {
         type: String,   // Data type is String.
-        required: true  // The field is required and must have a value.
+        required: [true, "Email is required"],  // The field is required and must have a value.
+        lowercase: true,
+        trim: true
     },
     // Field for storing the user's age as a number.
     age: {
