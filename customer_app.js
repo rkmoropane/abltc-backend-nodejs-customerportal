@@ -13,6 +13,10 @@ const bcrypt = require("bcrypt")
 const jwt = require('jsonwebtoken');  // Added JWT library
 const uuid = require('uuid'); //to generate a unique session id
 
+// require the Custom errors create on Registration and Login, errors/CustomErrors.js 
+const { ValidationError, InvalidUserError, AuthenticationFailed, DuplicateUserError } = require('./errors/CustomError');
+
+
 const {
     MONGODB_USER,
     MONGODB_PASSWORD,
@@ -33,19 +37,19 @@ const app = express();
 // A dictionary object to store username and password
 let usersdic = {};
 
-
 // Setting the port number for the server
 const port = 3000;
 
 // MongoDB connection URI and database name
-
 const uri =
     `mongodb://${encodeURIComponent(MONGODB_USER)}:` +
     `${encodeURIComponent(MONGODB_PASSWORD)}@` +
     `${MONGODB_HOST}:${MONGODB_PORT}`;
   
-    // MongoDB connection URI and database name
-    // const uri =  "mongodb://root:your_password@localhost:27017";
+// MongoDB connection URI and database name
+// const uri =  "mongodb://root:your_password@localhost:27017";
+mongoose.connect(uri, {'dbName': `${MONGODB_DATABASE}`});
+
     
     
 app.use(session({
@@ -56,16 +60,19 @@ app.use(session({
     genid: () => uuid.v4()
 }));
 
-mongoose.connect(uri, {'dbName': `${MONGODB_DATABASE}`});
-
 // Middleware to parse JSON requests
 app.use("*", bodyParser.json());
+
+// Middleware to handle URL-encoded form data
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // Serving static files from the 'frontend' directory under the '/static' route
 app.use('/static', express.static(path.join(".", 'frontend')));
 
-// Middleware to handle URL-encoded form data
-app.use(bodyParser.urlencoded({ extended: true }));
+// GET endpoint for the root URL, serving the home page
+app.get('/', async (req, res) => {
+    res.sendFile(path.join(__dirname, 'frontend', 'home.html'));
+});
 
 // POST endpoint for user login
 // app.post('/api/login', async (req, res) => {
@@ -85,45 +92,75 @@ app.use(bodyParser.urlencoded({ extended: true }));
 //     }
 // });
 
-// POST endpoint for user login
-app.post('/api/login', async (req, res) => {
-    const data = req.body;
-    console.log(data);
+// // POST endpoint for user login
+// app.post('/api/login', async (req, res) => {
+//     const data = req.body;
+//     console.log(data);
 
-    let user_name = data['user_name'];
-    let password = data['password'];
+//     let user_name = data['user_name'];
+//     let password = data['password'];
 
-    // Querying the MongoDB 'customers' collection for matching user_name and password
-    // const documents = await Customers.find({ user_name: user_name });
+//     // Querying the MongoDB 'customers' collection for matching user_name and password
+//     // const documents = await Customers.find({ user_name: user_name });
 
-    // // If a matching user is found, set the session username and serve the home page
-    // if (documents.length > 0) {
-    //     let result = await bcrypt.compare(password, documents[0]['password'])
-    //     if(result) {
-    //         const genidValue = req.sessionID;
-    //         res.cookie('username', user_name);
-    //         res.sendFile(path.join(__dirname, 'frontend', 'home.html'));
-    //     } else {
-    //         res.send("Password Incorrect! Try again");
-    //     }
-    // } else {
-    //     res.send("User Information incorrect");
-    const user = usersdic[user_name];
-    if (!user || !(await bcrypt.compare(password, user.hashedpwd))) {
-        res.status(401).send('User Information incorrect');
-        return;
-    }
+//     // // If a matching user is found, set the session username and serve the home page
+//     // if (documents.length > 0) {
+//     //     let result = await bcrypt.compare(password, documents[0]['password'])
+//     //     if(result) {
+//     //         const genidValue = req.sessionID;
+//     //         res.cookie('username', user_name);
+//     //         res.sendFile(path.join(__dirname, 'frontend', 'home.html'));
+//     //     } else {
+//     //         res.send("Password Incorrect! Try again");
+//     //     }
+//     // } else {
+//     //     res.send("User Information incorrect");
+//     const user = usersdic[user_name];
+//     if (!user || !(await bcrypt.compare(password, user.hashedpwd))) {
+//         res.status(401).send('User Information incorrect');
+//         return;
+//     }
  
-    // No need to print details to the terminal, just send a success message
-    res.status(200).send('Login successfully');
+//     // No need to print details to the terminal, just send a success message
+//     res.status(200).send('Login successfully');
     
+// });
+
+// Added the custom errors classes to the '/app/login' endpoint
+// POST endpoint for user login
+app.post('/api/login', async (req, res, next) => {
+    const data = req.body;
+    const user_name = data['user_name'];
+    const password = data['password'];
+    if (!user_name || !password) {
+        throw new ValidationError(
+          "Username and password are required"
+        );
+      }
+    
+ 
+    try {
+        const user = await Customers.findOne({ user_name: user_name });
+        if (!user) {
+            throw new InvalidUserError("No such user in database");
+        }
+        if (user.password !== password) {
+            throw new AuthenticationFailed("Passwords don't match");
+        }
+        const genidValue = req.sessionID;
+        res.cookie('username', user_name);
+        res.sendFile(path.join(__dirname, 'frontend', 'home.html'));
+    } catch (error) {
+        next(error);
+    }
 });
 
+
 // GET endpoint for user logout
-app.get('/api/logout', async (req, res) => {
+app.get('/api/logout', async (req, res, next) => {
     req.session.destroy((err) => {
         if (err) {
-          console.error(err);
+          next(err);
         } else {
           res.cookie('username', '', { expires: new Date(0) });
           res.redirect('/');
@@ -131,6 +168,12 @@ app.get('/api/logout', async (req, res) => {
       });
 });
 
+// New code for User log out Get endpoint 
+// GET endpoint for user logout
+// app.get('/api/logout', async (req, res) => {
+// 	res.cookie('username', '', { expires: new Date(0) });
+// 	res.redirect('/');
+// });
 
 
 // // POST endpoint for adding a new customer
@@ -157,37 +200,77 @@ app.get('/api/logout', async (req, res) => {
 // });
 
 // POST endpoint for adding a new customer
-app.post('/api/add_customer', async (req, res) => {
+// app.post('/api/add_customer', async (req, res) => {
+//     const data = req.body;
+//     console.log(data);
+
+//     const documents = await Customers.find({ user_name: data['user_name']});
+//     if (documents.length > 0) {
+//         res.send("User already exists");
+//         return;
+//     }
+
+//     let hashedpwd = bcrypt.hashSync(data['password'], saltRounds)
+
+//     // Creating a new instance of the Customers model with data from the request
+//     const customer = new Customers({
+//         "user_name": data['user_name'],
+//         "age": data['age'],
+//         "password": hashedpwd,
+//         "email": data['email']
+//     });
+
+//     // Saving the new customer to the MongoDB 'customers' collection
+//     await customer.save();
+
+//     res.send("Customer added successfully")
+// });
+
+// Added the custom errors classes to the '/app/add_customer' endpoint
+// POST endpoint for adding a new customer
+app.post('/api/add_customer', async (req, res, next) => {
     const data = req.body;
-    console.log(data);
+    const age = parseInt(data['age']);
+ 
+    try {
+        if (age < 21) {
+            throw new ValidationError("Customer must be at least 21 years old");
+        }
+        const documents = await Customers.find({ user_name: data['user_name']});
+        if (documents.length > 0) {
+            throw new DuplicateUserError(
+                "A customer with this username already exists"
+              );
+        }
 
-    const documents = await Customers.find({ user_name: data['user_name']});
-    if (documents.length > 0) {
-        res.send("User already exists");
-        return;
+        if (!user_name || !age || !password || !email) {
+            throw new ValidationError(
+              "Username, age, password, and email are required"
+            );
+          }
+        if (password.length < 8) {
+            throw new ValidationError(
+              "Password must contain at least 8 characters"
+            );
+        }
+        let hashedpwd = bcrypt.hashSync(data['password'], saltRounds)
+ 
+        const customer = new Customers({
+            "user_name": data['user_name'],
+            "age": age,
+            "password": data['password'],
+            "email": data['email']
+        });
+ 
+        await customer.save();
+ 
+        res.send("Customer added successfully");
+    } catch (error) {
+        next(error);
     }
-
-    let hashedpwd = bcrypt.hashSync(data['password'], saltRounds)
-
-    // Creating a new instance of the Customers model with data from the request
-    const customer = new Customers({
-        "user_name": data['user_name'],
-        "age": data['age'],
-        "password": hashedpwd,
-        "email": data['email']
-    });
-
-    // Saving the new customer to the MongoDB 'customers' collection
-    await customer.save();
-
-    res.send("Customer added successfully")
 });
 
 
-// GET endpoint for the root URL, serving the home page
-app.get('/', async (req, res) => {
-    res.sendFile(path.join(__dirname, 'frontend', 'home.html'));
-});
 
 // Function to authenticate JWT token
 function authenticateToken(req, res, next) {
@@ -208,6 +291,27 @@ function authenticateToken(req, res, next) {
         next();
     });
 }
+
+// Added the following middleware to handle all the invalid requests that come to the application.
+app.all("*",(req,res,next)=>{
+	const err = new Error(`Cannot find the URL ${req.originalUrl} in this application. Please check.`);
+	err.status = "Endpoint Failure";
+	err.statusCode = 404;
+	next(err);
+})
+
+// The global error handler to this code.
+app.use((err,req,res,next) => {
+	err.statusCode = err.statusCode || 500;
+	err.status = err.status || "Error";
+    console.log(err.stack);
+	res.status(err.statusCode).json({
+		status: err.statusCode,
+		message: err.message,
+	});
+})
+
+
 
 // Starting the server and listening on the specified port
 app.listen(port, () => {
