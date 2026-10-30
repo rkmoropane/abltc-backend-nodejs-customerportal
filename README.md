@@ -79,7 +79,17 @@ npm install
 "
 
 The project includes packages for Express, Mongoose, request-body parsing, and the customer portal application.
+## Configure Environment Variables
+Create a `.env` file in the project directory:
+```.env
 
+MONGODB_USER=root
+MONGODB_PASSWORD=replace_with_your_lab_password
+MONGODB_HOST=replace_with_your_mongodb_host
+MONGODB_PORT=27017
+MONGODB_DATABASE=employeeDB
+MONGODB_AUTH_SOURCE=admin
+```
 ## Inspect the Customer Model
 
 Open `customer.js` in the editor.
