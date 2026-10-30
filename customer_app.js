@@ -14,7 +14,7 @@ const jwt = require('jsonwebtoken');  // Added JWT library
 const uuid = require('uuid'); //to generate a unique session id
 
 // require the Custom errors create on Registration and Login, errors/CustomErrors.js 
-const { ValidationError, InvalidUserError, AuthenticationFailed, DuplicateUserError } = require('./errors/CustomError');
+const { ValidationError, InvalidUserError, AuthenticationFailed, DuplicateUserError } = require('./errors/CustomErrors');
 
 
 const {
