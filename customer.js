@@ -7,6 +7,12 @@ const Schema = mongoose.Schema;
 // Defining a schema for the 'customers' collection in MongoDB.
 const customersSchema = new Schema({
     // Field for storing the user's name as a string.
+    Name: {
+        type: String,
+        required: [true, "Name is required"],
+        trim: true
+      },
+      
     user_name: {
         type: String,   // Data type is String.
         required: [true, 'Username is required'],  // The field is required and must have a value.
